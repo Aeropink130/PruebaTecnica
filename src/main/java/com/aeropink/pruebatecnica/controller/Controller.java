@@ -20,8 +20,7 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/api/clients")
-public class controller {
-
+public class Controller {
     @Value("${twilio.account.sid}")
     private String twilioAccountSid;
 
@@ -33,7 +32,7 @@ public class controller {
     private final ClientRepository clientRepository;
 
     @Autowired
-    public controller(GoogleSheetsService googleSheetsService, ClientRepository clientRepository, StoreDataService storeDataService) {
+    public Controller(GoogleSheetsService googleSheetsService, ClientRepository clientRepository, StoreDataService storeDataService) {
         this.googleSheetsService = googleSheetsService;
         this.clientRepository = clientRepository;
         this.storeDataService = storeDataService;
@@ -49,30 +48,40 @@ public class controller {
             // Save the data to the database
             storeDataService.processAndSaveInDB(spreadsheetId, range);
 
-            return new ResponseEntity<>("Data synced and saved to database successfully", HttpStatus.OK);
+            // Send notifications to clients with delay
+            sendMessagesToClientsWithDelay(googleSheetsData);
+
+            return new ResponseEntity<>("Data synced, saved to database, and notifications sent successfully", HttpStatus.OK);
         } catch (IOException | GeneralSecurityException e) {
             e.printStackTrace();
-            return new ResponseEntity<>("Failed to sync data and save to database", HttpStatus.INTERNAL_SERVER_ERROR);
+            return new ResponseEntity<>("Failed to sync data, save to database, or send notifications", HttpStatus.INTERNAL_SERVER_ERROR);
         }
     }
 
     @GetMapping("/getAll")
-    public List<Client> getAll(){
+    public List<Client> getAll() {
         return clientRepository.findAll();
     }
 
-    @PostMapping("/sync")
-    public ResponseEntity<String> saveToDatabase(@RequestBody List<Client> clients) {
+    @GetMapping("/TwilioNotification")
+    public ResponseEntity<String> sendTwilioNotification() {
         try {
-            // Save the list of clients to the database
-            clientRepository.saveAll(clients);
-            return new ResponseEntity<>("Data saved to database successfully", HttpStatus.OK);
+            // Get clients with delay from the database
+            List<Client> clientsWithDelay = clientRepository.findByDelayGreaterThanEqual("5");
+
+            // Send notifications to clients with delay
+            for (Client client : clientsWithDelay) {
+                sendMessageToClient(client);
+            }
+
+            return new ResponseEntity<>("Twilio notifications sent successfully", HttpStatus.OK);
         } catch (Exception e) {
-            // Handle any exceptions that occur during the save operation
             e.printStackTrace();
-            return new ResponseEntity<>("Failed to save data to database", HttpStatus.INTERNAL_SERVER_ERROR);
+            return new ResponseEntity<>("Failed to send Twilio notifications", HttpStatus.INTERNAL_SERVER_ERROR);
         }
     }
+
+    // ... (rest of the controller code)
 
     private void sendMessagesToClientsWithDelay(List<List<Client>> googleSheetsData) {
         for (List<Client> clientsRow : googleSheetsData) {
@@ -90,7 +99,7 @@ public class controller {
         // Use injected Twilio properties
         Twilio.init(twilioAccountSid, twilioAuthToken);
 
-        String toPhoneNumber = "+528713784495";  // Replace with the client's phone number
+        String toPhoneNumber = "+528713784495";
         String fromPhoneNumber = "+0987654321";  // Replace with your Twilio phone number
 
         String message = "Tu cuenta presenta un atraso de " + client.getDelay() + " días. Por favor, regulariza tu situación.";
